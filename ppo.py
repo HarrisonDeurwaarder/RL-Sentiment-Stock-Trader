@@ -8,8 +8,8 @@ class Actor(nn.module):
     def __init__(self) -> None:
         super(Actor).__init__()
         self.optim = optim.Adam(self.parameters())
-        self.lstm = nn.LSTM(input_size=0, hidden_size=5, num_layers=3, dropout=0.1)
-        self.fc = nn.Tanh(5, 2)
+        self.lstm = nn.LSTM(input_size=0, hidden_size=32, num_layers=2, dropout=0.1)
+        self.fc = nn.Tanh(32, 2)
         
         
     def forward(self, 
@@ -71,21 +71,19 @@ class Actor(nn.module):
     
 class Critic():
     def __init__(self) -> None:
+        super(Actor).__init__()
         self.criterion = nn.MSELoss()
         self.optim = optim.Adam(self.parameters())
-        self.net = nn.Sequential(
-            nn.Linear(5),
-            nn.Linear(10),
-            nn.Linear(15),
-            nn.Linear(8),
-            nn.Linear(2)
-        )
+        self.lstm = nn.LSTM(input_size=0, hidden_size=32, num_layers=2, dropout=0.1)
+        self.fc = nn.Tanh(32, 1)
         
         
     def forward(self, 
                 state: torch.Tensor,
         ) -> torch.Tensor:
-        return self.net(state)
+        value, _ = self.lstm(state)[:, -1, :]
+        value = self.fc(value)
+        return value
     
     
     def train(self, 
