@@ -6,35 +6,65 @@ import numpy as np
 
 class Actor(nn.module):
     def __init__(self) -> None:
+        super(Actor).__init__()
         self.optim = optim.Adam(self.parameters())
-        self.net = nn.Sequential(
-            nn.Linear(5),
-            nn.Linear(10),
-            nn.Linear(15),
-            nn.Linear(8),
-            nn.Linear(2),
-            nn.Tanh()
-        )
+        self.lstm = nn.LSTM(input_size=0, hidden_size=5, num_layers=3, dropout=0.1)
+        self.fc = nn.Tanh(5, 2)
         
-    def forward(self, state: torch.Tensor, sample_action: bool = False) -> torch.Tensor:
-        output = self.net(state)
-        # For inference, directly sample stochasically on a normal distribution using mean and stddev
+        
+    def forward(self, 
+                state: torch.Tensor, 
+                sample_action: bool = False) -> torch.Tensor:
+        output, _ = self.lstm(state)[:, -1, :]
+        output = self.fc(output)
+        # For inference, directly sample stochasically on a normal distribution using mean and std
         if sample_action:
             return torch.normal(output[0], output[1])
         # For training, return parameters directly
         return output
     
-    def surrogate_objective(self, states: torch.Tensor, past_policy) -> torch.Tensor:
+    
+    def surrogate_objective(self, 
+                            critic: nn,
+                            rewards: torch.Tensor, 
+                            states: torch.Tensor, 
+                            next_states: torch.Tensor, 
+                            past_policy: nn,
+                            discount_factor: float = 0.99,
+                            clipping_parameter: float = 0.2,
+        ) -> torch.Tensor:
+        
         # For non-discrete action space; Compute the ratio between the current and past policies
         # Continuous action outputs can get small, thus exp and ln workaround employed
-        ratio_mean = torch.exp(torch.log(self(states)) - torch.log(past_policy(states)))
+        policy_ratio = torch.exp(torch.log(self(states)) - torch.log(past_policy(states)))
+        advantage_estimation = rewards + critic(next_states) * discount_factor
+        
+        surr_obj = torch.minimum(policy_ratio * advantage_estimation, 
+                             torch.clip(policy_ratio, 
+                                        1 - clipping_parameter, 
+                                        1 + clipping_parameter) * advantage_estimation)
+        return -torch.mean(surr_obj)
     
-    def train(self, states: torch.Tensor, next_states: torch.Tensor, discount_factor: float) -> None:
+    
+    def train(self, 
+              critic, 
+              rewards: torch.Tensor, 
+              states: torch.Tensor, 
+              next_states: torch.Tensor, 
+              past_policy, 
+              discount_factor: float = 0.99, 
+              clipping_parameter: float = 0.2,
+        ) -> None:
+        
         self.optim.zero_grad()
-        # Compute values of t and t+1 states
-        outs, next_outs = self(states), self(next_states)
         # MSE loss between critic and bootstrapped value
-        loss = self.criterion(outs, value + discount_factor * next_outs)
+        loss = self.surrogate_objective(critic=critic, 
+                                        rewards=rewards, 
+                                        states=states, 
+                                        next_states=next_states, 
+                                        past_policy=past_policy, 
+                                        discount_factor=discount_factor, 
+                                        clipping_parameter=clipping_parameter,)
         loss.backward()
         self.optim.step()
     
@@ -51,10 +81,19 @@ class Critic():
             nn.Linear(2)
         )
         
-    def forward(self, state: torch.Tensor) -> torch.Tensor:
+        
+    def forward(self, 
+                state: torch.Tensor,
+        ) -> torch.Tensor:
         return self.net(state)
     
-    def train(self, rewards: torch.Tensor, states: torch.Tensor, next_states: torch.Tensor, discount_factor: float = 0.99) -> None:
+    
+    def train(self, 
+              rewards: torch.Tensor, 
+              states: torch.Tensor, 
+              next_states: torch.Tensor, 
+              discount_factor: float = 0.99,
+        ) -> None:
         self.optim.zero_grad()
         # Compute values of t and t+1 states
         action_score, next_action_score = self(states), self(next_states)
