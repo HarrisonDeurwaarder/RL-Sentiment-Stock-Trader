@@ -99,4 +99,3 @@ class Critic():
         loss = self.criterion(action_score, rewards + discount_factor * next_action_score)
         loss.backward()
         self.optim.step()
-        
