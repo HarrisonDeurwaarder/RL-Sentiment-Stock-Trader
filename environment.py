@@ -7,12 +7,17 @@ class Environment:
     
     def __init__(self, 
                  ticker: str,
+                 total_capitol: float,
         ) -> None:
         self.ticker = ticker
         
+        # Historical share data; used for reward function
         self.shares = [0]
+        # Value that scales how many shares are able to be bought
+        self.total_capitol
         
-        self.date = dt.datetime(2000, 1, 1)
+        # Get the value of the portfolio by averaging the high/low of the day
+        self.portfolio_val = lambda shares, high, low: (high + low) * 0.5 * shares
         self.df = pd.DataFrame()
         self.index = 0
         self.assemble_env()
@@ -48,18 +53,20 @@ class Environment:
         '''
         Gets the reward of the current state
         '''
-    
-    
-    @staticmethod
-    def get_port_val(shares: int,
-                     high: float,
-                     low: float,
-        ) -> float:
+        
+        
+        
+    def trade(self, 
+              action: float,
+              index: float,
+        ) -> None:
         '''
-        Gets the value of the portfolio given the average price and num shares
+        Convert a trading score (action) into bought / sold shares
         '''
-        avg_price = (high + low) * 0.5
-        return shares * avg_price
+        # New share count. If selling drops below, shares defaulted to zero
+        held = max(action * self.total_capitol / self.df[''] + self.shares[-1], 0)
+        self.capitol -= held
+        self.shares.append(held)
     
     
     def step(self,
