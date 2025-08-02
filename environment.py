@@ -1,30 +1,36 @@
 import datetime as dt
 import torch
+import numpy as np
 import pandas as pd
+from typing import Tuple
 
 
 class Environment:
     
     def __init__(self, 
                  ticker: str,
-                 total_capitol: float,
-        ) -> None:
+                 total_capital: float = 1000,
+                 horizon: int = 2048) -> None:
         self.ticker = ticker
         
-        # Historical share data; used for reward function
-        self.shares = [0]
         # Value that scales how many shares are able to be bought
-        self.total_capitol
+        self.start_capital = total_capital
+        self.horizon = horizon
         
-        # Get the value of the portfolio by averaging the high/low of the day
-        self.portfolio_val = lambda shares, high, low: (high + low) * 0.5 * shares
-        self.df = pd.DataFrame()
+        self.start = 0
+        self.end = horizon
         self.index = 0
+        
+        self.df = pd.DataFrame()
         self.assemble_env()
         
         
     def __repr__(self,) -> str:
-        return f'Environment(ticker={self.ticker}, next_date={self.date})'
+        return f'Environment(ticker={self.ticker}, index={self.index}, capital={self.capital}, rollout_start={self.start}, rollout_end={self.end})'
+    
+    
+    def __len__(self,) -> int:
+        return len(self.df)
     
     
     def assemble_env(self,) -> None:
@@ -35,52 +41,83 @@ class Environment:
         data = pd.read_csv(f'Data/{self.ticker}_ohlcv.csv')
         self.df = data.drop([0, 1])
         self.df = self.df.rename(columns={'Price': 'date', 'Close': 'close', 'High': 'high', 'Low': 'low', 'Open': 'open', 'Volume': 'volume'})
+        self.df[['close', 'high', 'low', 'open', 'volume']] = self.df[['close', 'high', 'low', 'open', 'volume']].astype(float)
+        self.df = self.df.reset_index(drop=True)
     
     
-    def get_states(self, 
-                   index: int, 
-                   max_memory: int = 20,
-        ) -> torch.Tensor:
+    def reset(self,) -> torch.Tensor:
         '''
-        Given an index, returns the current state and memory states
+        Resets the environment back to the start of the rollout and returns the first state
         '''
-        return self.df.iloc[max(index - max_memory+1, 0): index+1] if index > len(self.df) else None
+        self.index = self.start
+        self.df['portfolio-vol'] = [0] * len(self.df)
+        self.df['capital'] = [self.start_capital] + [0.0] * (len(self.df)-1)
+        start_states = self.get_states()
+        self.index += 1
+        
+        return start_states
     
     
-    def get_reward(self,
-                   index: int,
-        ) -> float:
+    def next_rollout(self,) -> bool:
+        '''
+        Cycles to the next set of states in the horizon, indicates whether or not this is the final rollout
+        '''
+        self.start += self.horizon
+        self.end += self.horizon
+        
+        return self.end + self.horizon <= len(self.df)
+    
+    
+    def get_states(self,
+                   max_memory: int = 20,) -> torch.Tensor:
+        '''
+        Given an index, returns the current and memory states
+        '''
+        return self.df.iloc[max(self.index - max_memory+1, 0): self.index+1] if self.index < len(self.df) else None
+    
+    
+    def get_reward(self,) -> float:
         '''
         Gets the reward of the current state
         '''
+        # Get the value of the portfolio by averaging the high/low of the day
+        port_val = lambda shares, high, low: (high + low) * 0.5 * shares
         
+        val = port_val(self.df['portfolio-vol'][self.index], self.df['high'][self.index], self.df['low'][self.index])
+        next_val = port_val(self.df['portfolio-vol'][self.index+1], self.df['high'][self.index+1], self.df['low'][self.index+1])
+        
+        # Computes the log return of an action
+        return np.log(val / (next_val + 1e-4) + 1e-4)
         
         
     def trade(self, 
-              action: float,
-              index: float,
-        ) -> None:
+              action: float,) -> None:
         '''
-        Convert a trading score (action) into bought / sold shares
+        Convert a trading score (action) into bought / sold shares for the next state
         '''
-        # New share count. If selling drops below, shares defaulted to zero
-        held = max(action * self.total_capitol / self.df[''] + self.shares[-1], 0)
-        self.capitol -= held
-        self.shares.append(held)
+        # Spending cap based on the predicted action scalar [-1, 1]
+        trade_cap = action * self.df['capital'][self.index-1]
+        print(trade_cap, action, self.df['capital'][self.index-1])
+        # Clip the new volume to prevent negative holdings
+        new_volume = max(trade_cap // self.df['open'][self.index] + self.df['portfolio-vol'][self.index-1], 0)
+        # Circle back and scale based on the actual $ spent
+        self.df.loc[self.index, 'capital'] = self.df.loc[self.index, 'capital'] - self.df.loc[self.index, 'open'] * new_volume
+        self.df.loc[self.index, 'portfolio-vol'] = new_volume
     
     
     def step(self,
              action: float,
-             max_memory: int = 20,
-        ) -> torch.Tensor:
+             max_memory: int = 20,) -> Tuple[torch.Tensor]:
         '''
         Handles a step in the RL environment (executes action, returns next state, computes reward)
         '''
         is_over = self.index > len(self.df)-1
+        
+        self.trade(action=action,)
 
         # Get the past (max_memory) states, or the most if that's not possible
-        states = self.get_states(index=self.index, max_memory=max_memory)
-        next_states = self.get_states(index=self.index+1, max_memory=max_memory)
+        states = self.get_states(max_memory=max_memory,)
+        rewards = self.get_reward()
         
         self.index += 1
-        return states, is_over
+        return states, rewards, is_over

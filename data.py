@@ -1,7 +1,7 @@
 import yfinance as yf
 import pandas as pd
 
-# List taken from ChatGPT (4o)
+# List taken from GPT-4o
 tickers = [
     # Technology
     'AAPL', 'MSFT', 'GOOG', 'META', 'AMZN', 'TSLA', 'NVDA', 'IBM', 'ORCL', 'INTC',
