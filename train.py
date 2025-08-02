@@ -34,19 +34,19 @@ def main() -> None:
             actions = []
             rewards = []
             
-            states.append(torch.from_numpy(env.reset().clone().values))
+            states.append(torch.from_numpy(env.reset().to_numpy()).float())
             
-            # Until rollout is exhausted
+            # Until rollout queue is exhausted
             rollout_over = False
             while not rollout_over:
                 # Compute rollout
                 
-                action = actor(states[-1])
-                next_state, reward, rollout_over = env.step(action=action,
+                action, dist_params = actor(states[-1])
+                next_state, reward, rollout_over = env.step(action=action.item(),
                                               max_memory=MEMORY,)
-                states.append(torch.from_numpy(next_state.values))
-                actions.append(torch.from_numpy(action.values))
-                rewards.append(torch.from_numpy(reward.values))
+                states.append(torch.from_numpy(next_state.values).float())
+                actions.append(dist_params.values)
+                rewards.append(reward)
                 
             data = Rollout(states=states,
                            actions=actions,
@@ -56,7 +56,6 @@ def main() -> None:
             # Training loop
             for _ in range(EPOCHS):
                 for batch in data:
-                    print(type(batch['states']))
                     actor.train(critic=critic,
                                 rewards=batch['rewards'],
                                 states=batch['states'],

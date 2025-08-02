@@ -1,29 +1,30 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import numpy as np
+from typing import Tuple
 
 
 class Actor(nn.Module):
     def __init__(self,) -> None:
         super().__init__()
-        self.lstm = nn.LSTM(input_size=0, hidden_size=32, num_layers=2, dropout=0.1)
+        self.lstm = nn.LSTM(input_size=7, hidden_size=32, num_layers=2, dropout=0.1)
         self.fc = nn.Sequential(nn.Linear(32, 2),
                                 nn.Tanh(),)
         
         self.optim = optim.Adam(self.parameters())
         
+    # Overridden __call__ for IDE autocomplete
+    def __call__(self,
+                 state: torch.Tensor,) -> Tuple[torch.Tensor, float]:
+        return super().__call__(state)
+        
         
     def forward(self, 
-                state: torch.Tensor, 
-                sample_action: bool = False,) -> torch.Tensor:
-        output, _ = self.lstm(state)[:, -1, :]
-        output = self.fc(output)
-        # For inference, directly sample stochasically on a normal distribution using mean and std
-        if sample_action:
-            return torch.normal(output[0], output[1])
-        # For training, return parameters directly
-        return output
+                state: torch.Tensor) -> Tuple[torch.Tensor, float]:
+        _, (hidden, _) = self.lstm(state)
+        output = self.fc(hidden[-1])
+        # Return a sampled action and the distribution params
+        return torch.normal(output[0], torch.exp(output[1])), output
     
     
     def surrogate_objective(self, 
@@ -70,7 +71,7 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        self.lstm = nn.LSTM(input_size=0, hidden_size=32, num_layers=2, dropout=0.1)
+        self.lstm = nn.LSTM(input_size=7, hidden_size=32, num_layers=2, dropout=0.1)
         self.fc = nn.Sequential(nn.Linear(32, 2),
                                 nn.Tanh(),)
         

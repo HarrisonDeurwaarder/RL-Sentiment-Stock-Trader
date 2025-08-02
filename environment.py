@@ -45,12 +45,12 @@ class Environment:
         self.df = self.df.reset_index(drop=True)
     
     
-    def reset(self,) -> torch.Tensor:
+    def reset(self,) -> pd.DataFrame:
         '''
         Resets the environment back to the start of the rollout and returns the first state
         '''
         self.index = self.start
-        self.df['portfolio-vol'] = [0] * len(self.df)
+        self.df['portfolio-vol'] = [0.0] * len(self.df)
         self.df['capital'] = [self.start_capital] + [0.0] * (len(self.df)-1)
         start_states = self.get_states()
         self.index += 1
@@ -69,11 +69,11 @@ class Environment:
     
     
     def get_states(self,
-                   max_memory: int = 20,) -> torch.Tensor:
+                   max_memory: int = 20,) -> pd.DataFrame:
         '''
         Given an index, returns the current and memory states
         '''
-        return self.df.iloc[max(self.index - max_memory+1, 0): self.index+1] if self.index < len(self.df) else None
+        return self.df.iloc[max(self.index - max_memory+1, 0): self.index+1].drop('date', axis=1) if self.index < len(self.df) else None
     
     
     def get_reward(self,) -> float:
@@ -97,7 +97,6 @@ class Environment:
         '''
         # Spending cap based on the predicted action scalar [-1, 1]
         trade_cap = action * self.df['capital'][self.index-1]
-        print(trade_cap, action, self.df['capital'][self.index-1])
         # Clip the new volume to prevent negative holdings
         new_volume = max(trade_cap // self.df['open'][self.index] + self.df['portfolio-vol'][self.index-1], 0)
         # Circle back and scale based on the actual $ spent
@@ -107,17 +106,20 @@ class Environment:
     
     def step(self,
              action: float,
-             max_memory: int = 20,) -> Tuple[torch.Tensor]:
+             sample: bool = False,
+             max_memory: int = 20,) -> Tuple[pd.DataFrame, float, bool]:
         '''
         Handles a step in the RL environment (executes action, returns next state, computes reward)
         '''
-        is_over = self.index > len(self.df)-1
+        is_over = self.index > self.end-1
+        if sample:
+            action = torch.normal(action[0], action[1])
         
         self.trade(action=action,)
 
         # Get the past (max_memory) states, or the most if that's not possible
-        states = self.get_states(max_memory=max_memory,)
-        rewards = self.get_reward()
+        state = self.get_states(max_memory=max_memory,)
+        reward = self.get_reward()
         
         self.index += 1
-        return states, rewards, is_over
+        return state, reward, is_over
