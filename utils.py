@@ -1,5 +1,6 @@
-from typing import Dict, List
+from typing import Dict, List, Union
 from torch.utils.data.dataset import Dataset
+from torch.nn.utils.rnn import pack_padded_sequence, pad_sequence
 import torch
 
 
@@ -10,10 +11,12 @@ class Rollout(Dataset):
     def __init__(self, 
                  states: List[torch.Tensor], 
                  actions: List[torch.Tensor], 
+                 log_probs: List[torch.Tensor],
                  rewards: List[float],) -> None:
         self.states = states[:-1]
         self.next_states = states[1:]
         self.actions = actions
+        self.log_probs = log_probs
         self.rewards = rewards
         
     def __len__(self,) -> int:
@@ -21,9 +24,40 @@ class Rollout(Dataset):
     
     def __getitem__(self, 
                     index: int,) -> Dict[str, torch.Tensor]:
-        return {
-            'states': self.states[index],
-            'next_states': self.next_states[index],
-            'actions': self.actions[index],
-            'rewards': self.rewards[index]
-        }
+        return [
+            self.states[index],
+            self.next_states[index],
+            self.actions[index],
+            self.log_probs[index],
+            self.rewards[index],
+        ]
+        
+def collate_fn(batch: List[Dict[str, torch.Tensor]],) -> Dict[str, Union[torch.Tensor]]:
+    '''
+    Pads the state_t and state_t+1 using torch.nn.utils.rnn.pack_padded_sequence
+    '''
+    # Format 
+    states, next_states, actions, log_probs, rewards = zip(*batch)
+    # Derive the lengths of the paddings for torch.nn.utils.rnn.pack_padded_sequence and pad_sequences
+    lengths = [state.shape[0] for state in states]
+    # Padded transition variables
+    states = pad_sequence(states,
+                          batch_first=True,)
+    next_states = pad_sequence(next_states,
+                               batch_first=True,)
+    
+    packed_states = pack_padded_sequence(states,
+                                         lengths=lengths,
+                                         batch_first=True,
+                                         enforce_sorted=False,)
+    packed_next_states = pack_padded_sequence(next_states,
+                                              lengths=lengths,
+                                              batch_first=True,
+                                              enforce_sorted=False,)
+    return {
+        'states': packed_states,
+        'next_states': packed_next_states,
+        'actions': torch.stack(actions),
+        'log_probs': torch.stack(log_probs),
+        'rewards': torch.tensor(rewards)
+    }
