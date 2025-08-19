@@ -65,6 +65,7 @@ class Environment:
         self.start += self.horizon
         self.end += self.horizon
         
+        print(self.end + self.horizon <= len(self.df))
         return self.end + self.horizon <= len(self.df)
     
     

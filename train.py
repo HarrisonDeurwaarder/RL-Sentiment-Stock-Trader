@@ -4,10 +4,12 @@ from utils import *
 from data import *
 from torch.utils.data.dataloader import DataLoader
 import torch
+from datetime import datetime as dt
 torch.autograd.set_detect_anomaly(True)
 
 # Ensures the agent is adaptable to the start amount
 capital_dist = torch.distributions.Uniform(low=100, high=1000)
+PATH = f'Models/{dt.now()}'
 DISCOUNT_FACTOR = 0.99
 CLIPPING_PARAM = 0.2
 EPOCHS = 4
@@ -18,26 +20,30 @@ assert HORIZON % BATCH == 0
 
 
 def main() -> None:
-    actor = Actor()
-    critic = Critic()
     
     # Default to cpu if gpu is unavailable
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f'[INFO]: Using device: {str(device).upper()}')
+    
+    actor = Actor().to(device)
+    critic = Critic().to(device)
         
     # No explicit iteration count; every ticker will be exhausted
-    for ticker in tickers:
-
+    for i, ticker in enumerate(tickers):
+        
         # Assemble the environment and define the rollout indices
         env = Environment(ticker=ticker, total_capital=capital_dist.sample().item())
         # Until episode is over (no more rollouts can be extracted)
         ep_over = False
-        while not ep_over:
+        while ep_over:
+            print(f'[INFO]: Next rollout collection started (ticker={ticker.upper()})... ')
             
             # To be converted to a torch Dataset for training
             states = []
             actions = []
             log_probs = []
             rewards = []
+            start = dt.now()
             
             # Append root state
             states.append(
@@ -49,24 +55,25 @@ def main() -> None:
             while not rollout_over:
                 # Compute rollout
                 
-                action, dist = actor(states[-1])
+                action, dist = actor(states[-1].float().to(device))
                 next_state, reward, rollout_over = env.step(action=action.item(),
                                               max_memory=MEMORY,)
                 states.append(
-                    torch.from_numpy(next_state.values).float()
+                    torch.tensor(next_state.values)
                 )
                 actions.append(action.detach())
                 log_probs.append(dist.log_prob(action).detach())
-                rewards.append(float(reward))
+                rewards.append(reward)
                 
             data = Rollout(states=states,
                            actions=actions,
                            log_probs=log_probs,
-                           rewards=rewards,)
+                           rewards=rewards,
+                           device=device,)
             data = DataLoader(data, 
                               batch_size=BATCH, 
                               shuffle=True,
-                              collate_fn=collate_fn,)
+                              collate_fn=data.collate_fn,)
             
             # Training loop
             for _ in range(EPOCHS):
@@ -83,10 +90,16 @@ def main() -> None:
                                 next_states=batch['next_states'],
                                 discount_factor=DISCOUNT_FACTOR)
             
-                
+            
+            print(f'[INFO]: Rollout completed in {dt.now() - start}s\n[INFO]: Mean reward: {torch.tensor(reward).mean():.5f}')
             # Verifies that more rollouts can be extracted
             ep_over = env.next_rollout()
                 
+    print('[INFO]: Training complete.')
+    
+    # Save actor
+    torch.save(actor, PATH)
+    print(f'[INFO]: Agent saved to {PATH}')
 
 
 if __name__ == '__main__':
