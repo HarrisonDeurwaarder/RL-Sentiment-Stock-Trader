@@ -53,11 +53,10 @@ class Environment:
         '''
         Resets the environment back to the start of the rollout and returns the first state
         '''
-        self.index = self.start
+        self.index = self.start+1
         self.df['portfolio-vol'] = [0] * len(self.df)
         self.df['capital'] = [self.start_capital] + [0.0] * (len(self.df)-1)
         start_states = self.get_states()
-        self.index += 1
         
         return start_states
     
@@ -88,22 +87,45 @@ class Environment:
         return self.df.iloc[max(self.index - max_memory+1, 0): self.index+1].drop('date', axis=1) if self.index < len(self.df) else None
     
     
+    def get_nav(self,
+                index: int,) -> float:
+        '''
+        Returns the net asset value at an index
+        '''
+        return self.df['capital'][index] + self.df['open'][self.index] * self.df['portfolio-vol'][index]
+    
+    
+    def get_returns(self,
+                    index1: int,
+                    index2: int) -> float:
+        '''
+        Returns the arithmetic returns from index1 to index2. Used as a metric and reward
+        '''
+        assert index2 >= index1
+        nav1, nav2 = self.get_nav(index1), self.get_nav(index2)
+        
+        # Arithmetic return
+        return (nav2 - nav1) / (nav1 + 1e-4)
+    
+    
     def get_reward(self,) -> float:
         '''
-        Gets the reward of the current state
+        Returns the reward of the current state
         '''
-        
-        nav = self.df['capital'][self.index] + self.df['open'][self.index] * self.df['portfolio-vol'][self.index]
-        prev_nav = self.df['capital'][self.index-1] + self.df['open'][self.index-1] * self.df['portfolio-vol'][self.index-1]
-        
-        # Computes difference between NAVs
-        return nav - prev_nav
+        return self.get_returns(self.index-1, self.index)
+    
+    
+    def get_episode_return(self,) -> float:
+        '''
+        Returns the arithmetic return over an episode
+        '''
+        return self.get_returns(self.start+1, self.index)
         
         
     def trade(self, 
               action: float,) -> float:
         '''
-        Derives a target value based on action. Discourages high or low holdings
+        Derives a target value based on action and trades to reach it. Discourages high or low holdings
         '''
         # Compress the action value on (0, w_max)
         w_nav = self.max_nav / (1 + np.exp(-action))
@@ -128,7 +150,6 @@ class Environment:
         Handles a step in the RL environment (executes action, returns next state, computes reward)
         '''
         is_over = self.index >= self.end
-        
         
         self.trade(action=action,)
 

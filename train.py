@@ -97,7 +97,7 @@ def main() -> None:
                                     discount_factor=DISCOUNT_FACTOR)
                 
                 
-                print(f'[INFO]: Rollout completed in {dt.now() - start}s\n[INFO]: Mean reward: {torch.tensor(rewards).mean():.5f}')
+                print(f'==========================\nRollout completed in {(dt.now() - start).seconds}s\nMean reward: {torch.tensor(rewards).mean():.5f}\nTotal return: {env.get_episode_return():.5f}')
                 # Verifies that more rollouts can be extracted
                 rollouts_exhausted = env.next_rollout()
                 
