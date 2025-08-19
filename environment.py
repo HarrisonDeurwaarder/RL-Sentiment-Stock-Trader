@@ -1,4 +1,3 @@
-import datetime as dt
 import torch
 import numpy as np
 import pandas as pd
@@ -9,13 +8,18 @@ class Environment:
     
     def __init__(self, 
                  ticker: str,
-                 total_capital: float = 1000,
-                 horizon: int = 2048) -> None:
+                 capital_dist: torch.distributions.Distribution = torch.distributions.Uniform(100.0, 1000.0),
+                 horizon: int = 2048,
+                 episode_cutoff: int = 64,
+                 max_nav_portion: float = 1.0,) -> None:
         self.ticker = ticker
         
         # Value that scales how many shares are able to be bought
-        self.start_capital = total_capital
+        self.dist = capital_dist
+        self.start_capital = capital_dist.sample().item()
         self.horizon = horizon
+        self.max_nav = max_nav_portion
+        self.episode_cutoff = episode_cutoff
         
         self.start = 0
         self.end = horizon
@@ -50,12 +54,20 @@ class Environment:
         Resets the environment back to the start of the rollout and returns the first state
         '''
         self.index = self.start
-        self.df['portfolio-vol'] = [0.0] * len(self.df)
+        self.df['portfolio-vol'] = [0] * len(self.df)
         self.df['capital'] = [self.start_capital] + [0.0] * (len(self.df)-1)
         start_states = self.get_states()
         self.index += 1
         
         return start_states
+    
+    
+    def soft_reset(self,) -> None:
+        '''
+        Marks the end of an episode. Resets the capital and portfolio-vol, but leaves the index
+        '''
+        self.df.loc[self.index, 'portfolio-vol'] = 0
+        self.df.loc[self.index, 'capital'] = self.dist.sample().item()
     
     
     def next_rollout(self,) -> bool:
@@ -65,8 +77,7 @@ class Environment:
         self.start += self.horizon
         self.end += self.horizon
         
-        print(self.end + self.horizon <= len(self.df))
-        return self.end + self.horizon <= len(self.df)
+        return self.end + self.horizon >= len(self.df)
     
     
     def get_states(self,
@@ -81,28 +92,32 @@ class Environment:
         '''
         Gets the reward of the current state
         '''
-        # Get the value of the portfolio by averaging the high/low of the day
-        port_val = lambda shares, high, low: (high + low) * 0.5 * shares
         
-        val = port_val(self.df['portfolio-vol'][self.index], self.df['high'][self.index], self.df['low'][self.index])
-        next_val = port_val(self.df['portfolio-vol'][self.index+1], self.df['high'][self.index+1], self.df['low'][self.index+1])
+        nav = self.df['capital'][self.index] + self.df['open'][self.index] * self.df['portfolio-vol'][self.index]
+        prev_nav = self.df['capital'][self.index-1] + self.df['open'][self.index-1] * self.df['portfolio-vol'][self.index-1]
         
-        # Computes the log return of an action
-        return np.log(val / (next_val + 1e-4) + 1e-4)
+        # Computes difference between NAVs
+        return nav - prev_nav
         
         
     def trade(self, 
-              action: float,) -> None:
+              action: float,) -> float:
         '''
-        Convert a trading score (action) into bought / sold shares for the next state
+        Derives a target value based on action. Discourages high or low holdings
         '''
-        # Spending cap based on the predicted action scalar [-1, 1]
-        trade_cap = action * self.df['capital'][self.index-1]
-        # Clip the new volume to prevent negative holdings
-        new_volume = max(trade_cap // self.df['open'][self.index] + self.df['portfolio-vol'][self.index-1], 0)
-        # Circle back and scale based on the actual $ spent
-        self.df.loc[self.index, 'capital'] = self.df.loc[self.index, 'capital'] - self.df.loc[self.index, 'open'] * new_volume
-        self.df.loc[self.index, 'portfolio-vol'] = new_volume
+        # Compress the action value on (0, w_max)
+        w_nav = self.max_nav / (1 + np.exp(-action))
+        
+        # Current value of shares
+        curr_value = self.df['open'][self.index] * self.df['portfolio-vol'][self.index-1]
+        # Net asset value = price*shares + uninvested capital
+        nav = self.df['capital'][self.index-1] + self.df['open'][self.index] * self.df['portfolio-vol'][self.index-1]
+        # Portion of NAV to invest
+        target_value = w_nav * nav
+        margin = curr_value - target_value
+        # Update new capital/volume based on target
+        self.df.loc[self.index, 'portfolio-vol'] += margin // self.df['open'][self.index]
+        self.df.loc[self.index, 'capital'] = self.df['portfolio-vol'][self.index] * self.df['open'][self.index]
     
     
     def step(self,
@@ -112,15 +127,18 @@ class Environment:
         '''
         Handles a step in the RL environment (executes action, returns next state, computes reward)
         '''
-        is_over = self.index > self.end-1
-        if sample:
-            action = torch.normal(action[0], action[1])
+        is_over = self.index >= self.end
+        
         
         self.trade(action=action,)
 
         # Get the past (max_memory) states, or the most if that's not possible
         state = self.get_states(max_memory=max_memory,)
         reward = self.get_reward()
+        
+        # Episode reset, excluding rollout beginning
+        if self.index % self.episode_cutoff == 0 and self.index != self.start:
+            self.soft_reset()
         
         self.index += 1
         return state, reward, is_over

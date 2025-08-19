@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.nn.utils.rnn import PackedSequence, pad_packed_sequence
 from typing import Tuple
 
 
@@ -9,8 +8,7 @@ class Actor(nn.Module):
     def __init__(self,) -> None:
         super().__init__()
         self.lstm = nn.LSTM(input_size=7, hidden_size=32, num_layers=2, dropout=0.1)
-        self.fc = nn.Sequential(nn.Linear(32, 2),
-                                nn.Tanh(),)
+        self.fc = nn.Linear(32, 2)
         
         self.optim = optim.Adam(self.parameters())
         
@@ -78,8 +76,7 @@ class Critic(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.lstm = nn.LSTM(input_size=7, hidden_size=32, num_layers=2, dropout=0.1)
-        self.fc = nn.Sequential(nn.Linear(32, 1),
-                                nn.Tanh(),)
+        self.fc = nn.Linear(32, 1)
         
         self.criterion = nn.MSELoss()
         self.optim = optim.Adam(self.parameters())
