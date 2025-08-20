@@ -95,31 +95,24 @@ class Environment:
         return self.df['capital'][index] + self.df['open'][self.index] * self.df['portfolio-vol'][index]
     
     
-    def get_returns(self,
-                    index1: int,
-                    index2: int) -> float:
-        '''
-        Returns the arithmetic returns from index1 to index2. Used as a metric and reward
-        '''
-        assert index2 >= index1
-        nav1, nav2 = self.get_nav(index1), self.get_nav(index2)
-        
-        # Arithmetic return
-        return (nav2 - nav1) / (nav1 + 1e-4)
-    
-    
     def get_reward(self,) -> float:
         '''
         Returns the reward of the current state
         '''
-        return self.get_returns(self.index-1, self.index)
+        nav, prev_nav = self.get_nav(self.index), self.get_nav(self.index-1)
+        
+        # Arithmetic return
+        return nav - prev_nav
     
     
     def get_episode_return(self,) -> float:
         '''
         Returns the arithmetic return over an episode
         '''
-        return self.get_returns(self.start+1, self.index)
+        nav, start_nav = self.get_nav(self.index), self.get_nav(self.start)
+        print(start_nav, self.get_nav(self.start+1))
+        # Arithmetic return
+        return (nav - start_nav) / (start_nav + 1e-4)
         
         
     def trade(self, 
