@@ -18,7 +18,7 @@ HORIZON = 1024
 EPISODE_CUTOFF = 16
 BATCH = 64
 MEMORY = 10
-MAX_NAV_TRADE = 1.0
+MAX_NAV_TRADE = 0.2
 assert HORIZON % BATCH == 0
 
 
@@ -84,14 +84,15 @@ def main() -> None:
                 # Training loop
                 for _ in range(TRAINING_EPOCHS):
                     for batch in data:
-                        actor.train(critic=critic,
+                        actor.train_(critic=critic,
                                     rewards=batch['rewards'],
                                     states=batch['states'],
+                                    next_states=batch['next_states'],
                                     old_actions=batch['actions'], 
                                     old_log_probs=batch['log_probs'],
                                     discount_factor=DISCOUNT_FACTOR,
                                     clipping_parameter=CLIPPING_PARAM,)
-                        critic.train(rewards=batch['rewards'],
+                        critic.train_(rewards=batch['rewards'],
                                     states=batch['states'],
                                     next_states=batch['next_states'],
                                     discount_factor=DISCOUNT_FACTOR)

@@ -32,6 +32,7 @@ class Actor(nn.Module):
                             critic: nn,
                             rewards: torch.Tensor, 
                             states: torch.Tensor,
+                            next_states: torch.Tensor,
                             old_actions: torch.Tensor,
                             old_log_probs: torch.Tensor,
                             discount_factor: float = 0.99,
@@ -40,7 +41,9 @@ class Actor(nn.Module):
         # For non-discrete action space; Compute the ratio between the current and past policies
         # Continuous action outputs can get small, thus exp and ln workaround employed
         policy_ratio = torch.exp(self(states)[1].log_prob(old_actions) - old_log_probs)
-        advantage_estimation = rewards + critic(states) * discount_factor
+        # TD adv
+        with torch.no_grad():
+            advantage_estimation = (rewards + critic(next_states) * discount_factor) - critic(states)
         
         surr_obj = torch.minimum(advantage_estimation * policy_ratio, 
                              torch.clip(policy_ratio, 
@@ -53,6 +56,7 @@ class Actor(nn.Module):
               critic, 
               rewards: torch.Tensor, 
               states: torch.Tensor,
+              next_states: torch.Tensor,
               old_actions: torch.Tensor,
               old_log_probs: torch.Tensor,
               discount_factor: float = 0.99, 
@@ -64,6 +68,7 @@ class Actor(nn.Module):
         loss = self.surrogate_objective(critic=critic, 
                                         rewards=rewards, 
                                         states=states,
+                                        next_states=next_states,
                                         old_actions=old_actions,
                                         old_log_probs=old_log_probs,
                                         discount_factor=discount_factor, 

@@ -30,7 +30,7 @@ class Environment:
         
         
     def __repr__(self,) -> str:
-        return f'Environment(ticker={self.ticker}, index={self.index}, capital={self.df['capital'][self.index-1]}, capital_dist={self.dist} rollout_start={self.start}, rollout_end={self.end}, max_nav={self.max_nav}, episode_cutoff={self.episode_cutoff})'
+        return f'Environment(ticker={self.ticker}, index={self.index}, capital={self.df["capital"][self.index-1]}, capital_dist={self.dist}, rollout_start={self.start}, rollout_end={self.end}, max_nav={self.max_nav}, episode_cutoff={self.episode_cutoff})'
     
     
     def __len__(self,) -> int:
@@ -54,7 +54,7 @@ class Environment:
         Resets the environment back to the start of the rollout and returns the first state
         '''
         self.index = self.start+1
-        self.df['portfolio-vol'] = [0] * len(self.df)
+        self.df['portfolio-vol'] = [0.0] * len(self.df)
         self.df['capital'] = [self.start_capital] + [0.0] * (len(self.df)-1)
         start_states = self.get_states()
         
@@ -65,7 +65,7 @@ class Environment:
         '''
         Marks the end of an episode. Resets the capital and portfolio-vol, but leaves the index
         '''
-        self.df.loc[self.index, 'portfolio-vol'] = 0
+        self.df.loc[self.index, 'portfolio-vol'] = 0.0
         self.df.loc[self.index, 'capital'] = self.dist.sample().item()
     
     
@@ -109,8 +109,9 @@ class Environment:
         '''
         Returns the arithmetic return over an episode
         '''
-        nav, start_nav = self.get_nav(self.index), self.get_nav(self.start)
-        print(start_nav, self.get_nav(self.start+1))
+        nav, start_nav = self.get_nav(self.index), self.get_nav(self.index-self.episode_cutoff)
+        if self.index > 5:
+            print(self.df['capital'][self.index-5:self.index+5])
         # Arithmetic return
         return (nav - start_nav) / (start_nav + 1e-4)
         
@@ -122,7 +123,6 @@ class Environment:
         '''
         # Compress the action value on (0, w_max)
         w_nav = self.max_nav / (1 + np.exp(-action))
-        
         # Current value of shares
         curr_value = self.df['open'][self.index] * self.df['portfolio-vol'][self.index-1]
         # Net asset value = price*shares + uninvested capital
@@ -131,11 +131,10 @@ class Environment:
         target_value = w_nav * nav
         delta_value = curr_value - target_value
         # Update new capital/volume based on target
-        new_vol = delta_value // self.df['open'][self.index]
-        delta_vol = new_vol - self.df['portfolio-vol'][self.index-1]
-        # Base capital and volume off of integer shares
-        self.df.loc[self.index, 'capital'] += delta_vol * self.df['open'][self.index]
-        self.df.loc[self.index, 'portfolio-vol'] += new_vol
+        delta_vol = delta_value / self.df['open'][self.index] - self.df['portfolio-vol'][self.index-1]
+        
+        self.df.loc[self.index, 'capital'] += delta_value
+        self.df.loc[self.index, 'portfolio-vol'] += delta_vol
     
     
     def step(self,
