@@ -49,7 +49,7 @@ class Actor(nn.Module):
         return -torch.mean(surr_obj)
     
     
-    def train(self, 
+    def train_(self, 
               critic, 
               rewards: torch.Tensor, 
               states: torch.Tensor,
@@ -89,7 +89,7 @@ class Critic(nn.Module):
         return out.squeeze(-1)
     
     
-    def train(self, 
+    def train_(self, 
               rewards: torch.Tensor, 
               states: torch.Tensor, 
               next_states: torch.Tensor, 

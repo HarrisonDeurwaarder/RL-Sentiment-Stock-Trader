@@ -26,7 +26,7 @@ class Rollout(Dataset):
         return len(self.states)
     
     def __getitem__(self, 
-                    index: int,) -> Dict[str, torch.Tensor]:
+                    index: int,) -> List[torch.Tensor]:
         return [
             self.states[index],
             self.next_states[index],

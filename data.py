@@ -1,4 +1,3 @@
-import yfinance as yf
 import pandas as pd
 
 # List taken from GPT-4o
@@ -26,4 +25,5 @@ def main():
         data.to_csv(f'Data/{ticker.lower()}_ohlcv.csv', index=True)
     
 if __name__ == '__main__':
+    import yfinance as yf
     main()
