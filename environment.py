@@ -30,7 +30,7 @@ class Environment:
         
         
     def __repr__(self,) -> str:
-        return f'Environment(ticker={self.ticker}, index={self.index}, capital={self.capital}, rollout_start={self.start}, rollout_end={self.end})'
+        return f'Environment(ticker={self.ticker}, index={self.index}, capital={self.df['capital'][self.index-1]}, capital_dist={self.dist} rollout_start={self.start}, rollout_end={self.end}, max_nav={self.max_nav}, episode_cutoff={self.episode_cutoff})'
     
     
     def __len__(self,) -> int:
@@ -42,7 +42,7 @@ class Environment:
         Loads the dataframe from an imported CSV file
         '''
         # Extract the historical data from a single company
-        data = pd.read_csv(f'Data/{self.ticker}_ohlcv.csv')
+        data = pd.read_csv(f'Data/{self.ticker.lower()}_ohlcv.csv')
         self.df = data.drop([0, 1])
         self.df = self.df.rename(columns={'Price': 'date', 'Close': 'close', 'High': 'high', 'Low': 'low', 'Open': 'open', 'Volume': 'volume'})
         self.df[['close', 'high', 'low', 'open', 'volume']] = self.df[['close', 'high', 'low', 'open', 'volume']].astype(float)
@@ -90,7 +90,7 @@ class Environment:
     def get_nav(self,
                 index: int,) -> float:
         '''
-        Returns the net asset value at an index
+        Returns the net asset value at an index, given the current price
         '''
         return self.df['capital'][index] + self.df['open'][self.index] * self.df['portfolio-vol'][index]
     
@@ -129,15 +129,17 @@ class Environment:
         nav = self.df['capital'][self.index-1] + self.df['open'][self.index] * self.df['portfolio-vol'][self.index-1]
         # Portion of NAV to invest
         target_value = w_nav * nav
-        margin = curr_value - target_value
+        delta_value = curr_value - target_value
         # Update new capital/volume based on target
-        self.df.loc[self.index, 'portfolio-vol'] += margin // self.df['open'][self.index]
-        self.df.loc[self.index, 'capital'] = self.df['portfolio-vol'][self.index] * self.df['open'][self.index]
+        new_vol = delta_value // self.df['open'][self.index]
+        delta_vol = new_vol - self.df['portfolio-vol'][self.index-1]
+        # Base capital and volume off of integer shares
+        self.df.loc[self.index, 'capital'] += delta_vol * self.df['open'][self.index]
+        self.df.loc[self.index, 'portfolio-vol'] += new_vol
     
     
     def step(self,
              action: float,
-             sample: bool = False,
              max_memory: int = 20,) -> Tuple[pd.DataFrame, float, bool]:
         '''
         Handles a step in the RL environment (executes action, returns next state, computes reward)
